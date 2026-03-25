@@ -4,56 +4,74 @@ import numpy as np
 from tensorflow.keras.models import load_model
 import pickle
 
-# Page styling
-st.set_page_config(page_title="Churn Predictor", layout="centered")
+# 1. Page Config
+st.set_page_config(page_title="Netflix Churn Predictor", layout="wide")
+st.title("📊 Netflix Customer Churn Prediction")
 
-# Model aur Scaler load karne ka function
+# 2. Assets Load Karein
 @st.cache_resource
 def load_assets():
-    model = load_model('churn_model.h5')
+    # GitHub par file ka naam 'churn_model.h5' hona chahiye
+    model = load_model('churn_model.h5') 
     with open('scaler.pkl', 'rb') as f:
         scaler = pickle.load(f)
     return model, scaler
 
-model, scaler = load_assets()
+try:
+    model, scaler = load_assets()
+except Exception as e:
+    st.error(f"Error loading files: {e}")
 
-st.title("📊 Customer Churn Prediction")
-st.write("Customer details enter karein prediction ke liye:")
-
-# Form layout
+# 3. User Input Form
 with st.form("input_form"):
-    col1, col2 = st.columns(2)
-    
+    col1, col2, col3 = st.columns(3)
     with col1:
         age = st.number_input("Age", 18, 100, 30)
-        watch_hours = st.number_input("Total Watch Hours", 0.0, 5000.0, 100.0)
-        last_login = st.number_input("Last Login (Days)", 0, 365, 5)
-        
+        gender = st.selectbox("Gender", ["Male", "Female"])
+        region = st.selectbox("Region", ["North", "South", "East", "West"])
     with col2:
-        monthly_fee = st.number_input("Monthly Fee ($)", 0.0, 500.0, 50.0)
-        profiles = st.number_input("Number of Profiles", 1, 5, 1)
-        avg_watch = st.number_input("Avg Watch Time/Day", 0.0, 24.0, 2.0)
+        sub_type = st.selectbox("Subscription Type", ["Basic", "Standard", "Premium"])
+        monthly_fee = st.number_input("Monthly Fee ($)", 10.0, 500.0, 50.0)
+        profiles = st.number_input("Profiles", 1, 5, 2)
+    with col3:
+        watch_hours = st.number_input("Total Watch Hours", 0.0, 1000.0, 150.0)
+        avg_watch = st.number_input("Avg Watch Time/Day", 0.0, 24.0, 3.0)
+        last_login = st.number_input("Days Since Last Login", 0, 30, 5)
+    
+    genre = st.selectbox("Favorite Genre", ["Action", "Comedy", "Drama", "Sci-Fi"])
+    submit = st.form_submit_button("Predict Churn Risk")
 
-    # Categorical Inputs (Note: Iske liye training wala same encoding zaruri hai)
-    gender = st.selectbox("Gender", ["Male", "Female"])
-    region = st.selectbox("Region", ["North", "South", "East", "West"])
-    
-    predict_btn = st.form_submit_button("Predict Churn Risk")
+# 4. Prediction Logic (Handling 29 Features)
+if submit:
+    # A. Raw Data DataFrame
+    data = {
+        'age': age, 'gender': gender, 'subscription_type': sub_type,
+        'watch_hours': watch_hours, 'last_login_days': last_login,
+        'region': region, 'monthly_fee': monthly_fee, 
+        'number_of_profiles': profiles, 'avg_watch_time_per_day': avg_watch,
+        'favorite_genre': genre
+    }
+    df_input = pd.DataFrame([data])
 
-if predict_btn:
-    # 1. Input Data taiyar karein (Sequence wahi rakhein jo training mein tha)
-    # Filhal hum numerical data par focus kar rahe hain:
-    features = np.array([[age, watch_hours, last_login, monthly_fee, profiles, avg_watch]])
-    
-    # 2. Scale karein
-    scaled_features = scaler.transform(features)
-    
-    # 3. Predict karein
-    prediction = model.predict(scaled_features)
-    risk_score = prediction[0][0]
+    # B. Encoding (Jaise training mein pd.get_dummies kiya tha)
+    df_encoded = pd.get_dummies(df_input)
+
+    # C. Matching Columns (Jo 29 features training mein thay unhe yahan match karna)
+    # Jo columns missing hain unhe 0 se fill karein
+    for col in scaler.feature_names_in_:
+        if col not in df_encoded.columns:
+            df_encoded[col] = 0
+            
+    # Sequence sahi karein
+    df_final = df_encoded[scaler.feature_names_in_]
+
+    # D. Scale & Predict
+    scaled_data = scaler.transform(df_final)
+    prediction = model.predict(scaled_data)
+    prob = float(prediction[0][0])
 
     st.divider()
-    if risk_score > 0.5:
-        st.error(f"🔴 High Risk! Churn hone ka chance: {risk_score*100:.2f}%")
+    if prob > 0.5:
+        st.error(f"⚠️ High Risk: {prob*100:.1f}% Churn Probability")
     else:
-        st.success(f"🟢 Low Risk! Retention ka chance: {(1-risk_score)*100:.2f}%")
+        st.success(f"✅ Safe: {(1-prob)*100:.1f}% Retention Probability")
